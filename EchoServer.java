@@ -3,6 +3,9 @@
 // license found at www.lloseng.com 
 
 
+import java.io.IOException;
+
+import common.ChatIF;
 import ocsf.server.*;
 
 /**
@@ -18,11 +21,16 @@ import ocsf.server.*;
 public class EchoServer extends AbstractServer 
 {
   //Class variables *************************************************
-  
-  /**
-   * The default port to listen on.
-   */
-  final public static int DEFAULT_PORT = 5555;
+	
+	
+	final private String key = "loginKey"; 
+	
+	final String  signal_de_deconnection = "S1GN4L_2_DECONNECTION";
+	  /**
+	   * The interface type variable.  It allows the implementation of 
+	   * the display method in the client.
+	   */
+	  ChatIF serverUI; 
   
   //Constructors ****************************************************
   
@@ -30,10 +38,12 @@ public class EchoServer extends AbstractServer
    * Constructs an instance of the echo server.
    *
    * @param port The port number to connect on.
+   * @param serverUI The interface type variable.
    */
-  public EchoServer(int port) 
+  public EchoServer(int port, ChatIF serverUI) throws IOException 
   {
-    super(port);
+    super(port);//Call the superclass constructor
+    this.serverUI = serverUI;
   }
 
   
@@ -48,9 +58,31 @@ public class EchoServer extends AbstractServer
   public void handleMessageFromClient
     (Object msg, ConnectionToClient client)
   {
-    System.out.println("Message received: " + msg + " from " + client);
-    this.sendToAllClients(msg);
+	serverUI.display("Message received: " + msg + " from " + client.getInfo(key));
+	
+	String msgString = String.valueOf(msg).trim();
+	
+	if(msgString.startsWith("#login"))
+	{
+	    int sep_index= msgString.indexOf(" ") ;		
+	    String loginID = msgString.substring(sep_index+1).trim();
+	    client.setInfo(key, loginID);
+	    String annoucement = client.getInfo(key)+" has lOGGED ON.";
+	    serverUI.display(annoucement);
+	    this.sendToAllClients(annoucement);
+	}
+	else if(msgString.equals(signal_de_deconnection))
+	{
+		clientDisconnected(client);
+	}
+	else
+	{
+		this.sendToAllClients(client.getInfo(key)+ "> "+msg);
+	}
+	  
+    
   }
+  
     
   /**
    * This method overrides the one in the superclass.  Called
@@ -58,7 +90,7 @@ public class EchoServer extends AbstractServer
    */
   protected void serverStarted()
   {
-    System.out.println
+	  serverUI.display
       ("Server listening for connections on port " + getPort());
   }
   
@@ -68,42 +100,197 @@ public class EchoServer extends AbstractServer
    */
   protected void serverStopped()
   {
-    System.out.println
+	  serverUI.display
       ("Server has stopped listening for connections.");
+	  sendToAllClients("WARNING - The server has stopped listening for connections");
   }
+  
+  @Override
+protected void clientConnected(ConnectionToClient client) {
+	// TODO Auto-generated method stub
+	super.clientConnected(client);
+	 serverUI.display( "a NEW CLIENT is attempting to CONNECT to the server.");
+	 
+}
+
+
+@Override
+protected synchronized void clientDisconnected(ConnectionToClient client) {
+	// TODO Auto-generated method stub
+	super.clientDisconnected(client);
+	String msg = client.getInfo(key)+" has DISCONNECTED";
+	serverUI.display("Client "+msg);
+	this.sendToAllClients(msg);
+	/*try {
+		client.close();
+	} catch (IOException e) {
+		// TODO Auto-generated catch block
+		e.printStackTrace();
+	}*/
+}
   
   //Class methods ***************************************************
-  
-  /**
-   * This method is responsible for the creation of 
-   * the server instance (there is no UI in this phase).
-   *
-   * @param args[0] The port number to listen on.  Defaults to 5555 
-   *          if no argument is entered.
-   */
-  public static void main(String[] args) 
-  {
-    int port = 0; //Port to listen on
 
-    try
-    {
-      port = Integer.parseInt(args[0]); //Get port from command line
-    }
-    catch(Throwable t)
-    {
-      port = DEFAULT_PORT; //Set port to 5555
-    }
+	/**
+	 * This method handles all data coming from the UI            
+	 *
+	 * @param message The message from the UI.    
+	 */
+	public void handleMessageFromServerUI(String message)
+	{
+		if(message.startsWith("#"))
+		{
+			this.handleCommand(message);
+		}
+		else
+		{
+			 message= "SERVER MSG> "+message;
+			 serverUI.display(message);
+			 sendToAllClients(message);
+		}
+		 
+	}
 	
-    EchoServer sv = new EchoServer(port);
-    
-    try 
-    {
-      sv.listen(); //Start listening for connections
-    } 
-    catch (Exception ex) 
-    {
-      System.out.println("ERROR - Could not listen for clients!");
-    }
-  }
+	 /**
+	 * @param cmd la command qui indiquera l action a effectue
+	 * Cette methode permet d executer les commandes entrees dans la partie client
+	 */
+	private void handleCommand(String cmd)
+	  {
+		cmd = cmd.trim();
+		String sep = " ";
+	    int sep_index= cmd.indexOf(sep) ;
+	    String action = sep_index==-1?cmd:cmd.substring(0,sep_index);
+		String arg= sep_index==-1?"":cmd.substring(sep_index+1).trim();
+		
+		/*serverUI.display("Action " + action);
+		serverUI.display("Arg "+ arg);*/
+		
+		switch(action) {
+		
+		  case "#quit":
+		    // code block
+			 serverUI.display("The server will quit .....");
+			 this.quit();
+		    break;
+		    
+		  case "#stop":
+		    // code block
+			  
+			  serverUI.display("the server will stop listening for connections ......");
+			  this.stopListening();
+			 
+		    break;
+		    
+		  case "#close":
+			    // code block
+			  try {
+				  serverUI.display("The server will close ...... ");
+				  sendToAllClients("SERVER SHUTTING DOWN! DISCONNECTING!");
+				this.close();
+				serverUI.display("The server is now CLOSED");
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				serverUI.display("ERROR DETECTED: " + '\n'+e.toString());
+			}
+				  
+			  break;
+			  
+		  case "#setport":
+			    // code block
+			  if(!this.isListening())
+			  {
+				  int port = 0; 
+				  try
+				  {
+					  port=Integer.parseInt(arg);
+					  this.setPort(port);
+					  serverUI.display("server port set to "+ arg);
+				  }
+				  catch(NumberFormatException e)
+				    {
+					  serverUI.display("ERROR DETECTED: " + '\n'+e.toString());
+				    }
+			  }
+			  else
+			  {
+				  serverUI.display("ERROR DETECTED: the server is open");
+			  }
+				  
+			    break;
+			    
+		  case "#start":
+			    // code block
+			try {
+				this.listen();
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				serverUI.display("ERROR DETECTED: " + '\n'+e.toString());
+			}
+			    break;
+	
+		  case "#getport":
+			    // code block
+			  	serverUI.display("current server port number: " + this.getPort());
+			    break;
+			    
+		  default:
+		    // code block
+			  serverUI.display("ERROR: command doesnt exist."+'\n' + "Read the documentation"+'\n' + commandeDoc());
+		}
+		
+		
+	  }
+
+		/**
+		 * affiche la documentation des commandes disponibles
+		 */
+		private String commandeDoc()
+		{
+			return (
+			        "****************************"+'\n'+
+			        "LISTE COMMANDES DISPONIBLES"+'\n'+
+			        "****************************"+'\n'+
+			        "#quit:  Provoque l'arrêt normal du serveur." +'\n'+
+			"#stop: Provoque le serveur de cesser d'écouter aux nouveaux clients."+'\n'+
+			"#close <host>: Provoque le serveur de cesser non seulement d'écouter aux nouveaux clients, mais également de déconnecter tous les clients existants."+'\n'+
+			"#setport <port>: Appelle la méthode setPort sur le serveur." +'\n'+
+			"#start: Provoque le serveur de commencer à écouter pour des nouveaux clients. "+'\n'+
+			"#getport: Affiche le numéro de port actuel.");
+			
+		}
+	  
+		/**
+		   * This method terminates the server.
+		   */
+		  public void quit()
+		  {
+		    try
+		    {
+		      close();
+		      serverUI.display("The server just QUIT");
+		    }
+		    catch(IOException e)
+		    {
+		    	
+		    }
+		    System.exit(0);
+		  }
+
+
+		@Override
+		protected synchronized void clientException(ConnectionToClient client, Throwable exception) {
+			// TODO Auto-generated method stub
+			super.clientException(client, exception);
+			String msg = client.getInfo("loginID").toString() + " has disconnected";
+
+			serverUI.display(msg);
+		    this.sendToAllClients(msg);
+	
+		}
+
+		  
+
+
 }
 //End of EchoServer class
